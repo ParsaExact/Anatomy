@@ -1,11 +1,50 @@
 services:
   - type: web
-    name: anatomy-8point-api
+    name: anatomy-main1
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    plan: free
+    healthCheckPath: /health-main1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: PORT
+        generateValue: true
+
+  - type: web
+    name: anatomy-main2
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main2:app --host 0.0.0.0 --port $PORT
     plan: free
-    healthCheckPath: /health-8point
+    healthCheckPath: /health-main2
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: PORT
+        generateValue: true
+
+  - type: web
+    name: anatomy-main3
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main3:app --host 0.0.0.0 --port $PORT
+    plan: free
+    healthCheckPath: /health-main3
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: PORT
+        generateValue: true
+
+  - type: web
+    name: anatomy-main4
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main4:app --host 0.0.0.0 --port $PORT
+    plan: free
+    healthCheckPath: /health-main4
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
