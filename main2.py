@@ -99,48 +99,53 @@ def calculate_spinal_alignment(c7_neck: Tuple[int, int], sacrum: Tuple[int, int]
 
 def calculate_8_point_analysis(points: List[Tuple[int, int]]) -> Dict[str, Any]:
     """
-    Main analysis function that calculates all 8-point postural measurements.
-    
+    Main analysis function that calculates all 8-point postural measurements using the POTSI formula.
     Args:
         points: List of 8 anatomical points in order:
                [C7, L_Shoulder, R_Shoulder, L_Armpit, R_Armpit, L_Waist, R_Waist, Sacrum]
-    
     Returns:
         Dictionary containing all calculated measurements
     """
     if len(points) != 8:
         raise ValueError(f"Expected 8 points, got {len(points)}")
     
-    # Extract points by anatomical location
-    c7_neck = points[0]
-    left_shoulder = points[1]
-    right_shoulder = points[2]
-    left_armpit = points[3]
-    right_armpit = points[4]
-    left_waist = points[5]
-    right_waist = points[6]
-    sacrum_point = points[7]
-    
-    # Calculate various measurements
+    c7 = points[0]
+    l_shoulder = points[1]
+    r_shoulder = points[2]
+    l_armpit = points[3]
+    r_armpit = points[4]
+    l_waist = points[5]
+    r_waist = points[6]
+    sacrum = points[7]
+
+    mid_x = c7[0]
+    # FAI indices
+    fai_c7 = abs(c7[0] - mid_x)  # always 0
+    fai_a = abs((l_armpit[0] + r_armpit[0]) / 2 - mid_x)
+    fai_t = abs((l_waist[0] + r_waist[0]) / 2 - mid_x)
+    # HDI indices
+    hdi_s = abs(l_shoulder[1] - r_shoulder[1])
+    hdi_a = abs(l_armpit[1] - r_armpit[1])
+    hdi_t = abs(l_waist[1] - r_waist[1])
+    # POTSI calculation
+    potsi = (fai_c7 + fai_a + fai_t) + (hdi_s + hdi_a + hdi_t)
+
     results = {
-        'shoulder_symmetry': calculate_shoulder_symmetry(left_shoulder, right_shoulder),
-        'armpit_symmetry': calculate_armpit_symmetry(left_armpit, right_armpit),
-        'waist_symmetry': calculate_waist_symmetry(left_waist, right_waist),
-        'spinal_alignment': calculate_spinal_alignment(c7_neck, sacrum_point),
-        'overall_posture_score': random.uniform(60.0, 95.0),
-        'left_right_balance': random.uniform(-5.0, 5.0),
-        'upper_body_tilt': random.uniform(-3.0, 3.0),
-        
-        # Store original points for reference
+        'shoulder_symmetry': hdi_s,
+        'armpit_symmetry': hdi_a,
+        'waist_symmetry': hdi_t,
+        'spinal_alignment': abs(c7[0] - sacrum[0]),
+        'overall_posture_score': potsi,
+        # Optionally keep these for reference
         'anatomical_points': {
-            'c7_neck': c7_neck,
-            'left_shoulder': left_shoulder,
-            'right_shoulder': right_shoulder,
-            'left_armpit': left_armpit,
-            'right_armpit': right_armpit,
-            'left_waist': left_waist,
-            'right_waist': right_waist,
-            'sacrum_point': sacrum_point
+            'c7_neck': c7,
+            'left_shoulder': l_shoulder,
+            'right_shoulder': r_shoulder,
+            'left_armpit': l_armpit,
+            'right_armpit': r_armpit,
+            'left_waist': l_waist,
+            'right_waist': r_waist,
+            'sacrum_point': sacrum
         }
     }
     
