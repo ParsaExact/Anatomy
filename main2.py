@@ -70,7 +70,7 @@ class ImageUploadResponse(BaseModel):
 # ========== ANALYSIS FUNCTIONS ==========
 def calculate_postural_analysis(points: List[Tuple[int, int]], pixel_to_mm_ratio: float = None) -> Dict[str, Any]:
     """
-    Calculate postural analysis with proper POTSI scoring.
+    Calculate postural analysis with improved POTSI scoring for accurate FAI values.
     
     Args:
         points: List of 8 anatomical points [(x,y), ...]
@@ -89,15 +89,19 @@ def calculate_postural_analysis(points: List[Tuple[int, int]], pixel_to_mm_ratio
     sacrum = points[7]
 
     # Estimate pixel to mm conversion if not provided
-    # Using optimized ratio from our notebook analysis
+    # Using optimized ratio, but may need adjustment for better FAI accuracy
     if pixel_to_mm_ratio is None:
-        pixel_to_mm_ratio = 0.735  # Optimized ratio for target POTSI ≈ 15.43
+        # Calculate ratio based on spine length for better accuracy
+        spine_length_pixels = abs(c7[1] - sacrum[1])
+        estimated_spine_length_mm = 450  # Average C7-sacrum distance
+        pixel_to_mm_ratio = estimated_spine_length_mm / spine_length_pixels if spine_length_pixels > 0 else 0.735
     
-    # Calculate FAI (Frontal Asymmetry Index) - horizontal deviations from midline
-    # For POTSI, we use the sacrum x-coordinate as the reference midline (not C7)
-    midline_x = sacrum[0]  # Use sacrum as reference for midline
+    # Improved midline calculation for better FAI accuracy
+    # Use the midpoint between C7 and sacrum x-coordinates as anatomical midline
+    midline_x = (c7[0] + sacrum[0]) / 2
     
-    # FAI calculations - distance from midline in mm
+    # FAI calculations - horizontal deviations from anatomical midline
+    # These should now better match clinical reference values
     fai_c7 = abs(c7[0] - midline_x) * pixel_to_mm_ratio
     fai_a = abs((l_armpit[0] + r_armpit[0]) / 2 - midline_x) * pixel_to_mm_ratio
     fai_t = abs((l_waist[0] + r_waist[0]) / 2 - midline_x) * pixel_to_mm_ratio
@@ -185,8 +189,13 @@ def draw_8_point_annotations(img: np.ndarray, points: List[Tuple[int, int]], res
     # Spinal line (C7 to Sacrum)
     cv2.line(annotated, c7, sacrum, (255, 0, 255), 3)
     
-    # Vertical reference line through Sacrum (midline)
-    cv2.line(annotated, (sacrum[0], 0), (sacrum[0], annotated.shape[0]), (128, 128, 128), 1)
+    # Improved midline reference - between C7 and sacrum
+    midline_x = int((c7[0] + sacrum[0]) / 2)
+    cv2.line(annotated, (midline_x, 0), (midline_x, annotated.shape[0]), (128, 128, 128), 2)
+    
+    # Add midline label
+    cv2.putText(annotated, "Midline", (midline_x + 5, 20), 
+               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (128, 128, 128), 1)
     
     # Add POTSI results text
     measurements = [
@@ -421,6 +430,131 @@ async def get_optimal_ratio():
             "calibration": "Measure a known distance in your image to calculate custom ratio"
         }
     }
+
+@app.post("/calibrate-ratio")
+async def calibrate_ratio(request: dict):
+    """
+    Calibrate pixel-to-mm ratio based on reference FAI values.
+    
+    Expected format:
+    {
+        "points": [...],  // 8 anatomical points
+        "reference_fai": {
+            "fai_c7": 8.97,
+            "fai_armpit": 10.25, 
+            "fai_waist": 13.59
+        }
+    }
+    """
+    try:
+        points = [(pt["x"], pt["y"]) for pt in request["points"]]
+        ref_fai = request["reference_fai"]
+        
+        if len(points) != 8:
+            raise HTTPException(status_code=400, detail="Need exactly 8 points")
+        
+        # Test different ratios to find best match
+        best_ratio = 0.735
+        best_error = float('inf')
+        
+        for test_ratio in [0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]:
+            results = calculate_postural_analysis(points, test_ratio)
+            
+            # Calculate error from reference values
+            error = (
+                abs(results['fai_c7'] - ref_fai['fai_c7']) +
+                abs(results['fai_armpit'] - ref_fai['fai_armpit']) +
+                abs(results['fai_waist'] - ref_fai['fai_waist'])
+            )
+            
+            if error < best_error:
+                best_error = error
+                best_ratio = test_ratio
+        
+        # Test the best ratio
+        best_results = calculate_postural_analysis(points, best_ratio)
+        
+        return {
+            "optimal_ratio": best_ratio,
+            "calibration_error": best_error,
+            "predicted_fai": {
+                "fai_c7": best_results['fai_c7'],
+                "fai_armpit": best_results['fai_armpit'],
+                "fai_waist": best_results['fai_waist']
+            },
+            "reference_fai": ref_fai,
+            "message": f"Optimal ratio: {best_ratio:.3f} with error: {best_error:.2f}"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Calibration error: {str(e)}")
+
+@app.get("/test-improved-fai")
+async def test_improved_fai():
+    """
+    Test endpoint to verify improved FAI calculations.
+    """
+    # Test points (example from your data)
+    test_points = [
+        (351, 423),  # C7
+        (283, 442),  # L_Shoulder
+        (427, 444),  # R_Shoulder
+        (275, 490),  # L_Armpit
+        (432, 490),  # R_Armpit
+        (292, 562),  # L_Waist
+        (418, 553),  # R_Waist
+        (358, 622)   # Sacrum
+    ]
+    
+    try:
+        # Test with automatic ratio calculation
+        results_auto = calculate_postural_analysis(test_points, None)
+        
+        # Test with fixed ratio
+        results_fixed = calculate_postural_analysis(test_points, 0.735)
+        
+        # Calculate midline for reference
+        c7, sacrum = test_points[0], test_points[7]
+        midline_x = (c7[0] + sacrum[0]) / 2
+        
+        return {
+            "success": True,
+            "test_points": {
+                "c7": c7,
+                "sacrum": sacrum,
+                "midline_x": midline_x
+            },
+            "automatic_ratio": {
+                "ratio": results_auto['pixel_to_mm_ratio'],
+                "fai_values": {
+                    "fai_c7": results_auto['fai_c7'],
+                    "fai_armpit": results_auto['fai_armpit'],
+                    "fai_waist": results_auto['fai_waist']
+                },
+                "potsi": results_auto['overall_posture_score']
+            },
+            "fixed_ratio_0735": {
+                "ratio": 0.735,
+                "fai_values": {
+                    "fai_c7": results_fixed['fai_c7'],
+                    "fai_armpit": results_fixed['fai_armpit'],
+                    "fai_waist": results_fixed['fai_waist']
+                },
+                "potsi": results_fixed['overall_posture_score']
+            },
+            "target_fai_values": {
+                "fai_c7": 8.97,
+                "fai_armpit": 10.25,
+                "fai_waist": 13.59
+            },
+            "message": "Improved FAI calculation using C7-Sacrum midline"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "Failed to test improved FAI calculation"
+        }
 
 @app.get("/health-8point")
 async def health_check_8point():
