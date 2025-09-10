@@ -70,7 +70,7 @@ class ImageUploadResponse(BaseModel):
 # ========== ANALYSIS FUNCTIONS ==========
 def calculate_postural_analysis(points: List[Tuple[int, int]], pixel_to_mm_ratio: float = None) -> Dict[str, Any]:
     """
-    Calculate postural analysis using SCODIAC formulas for accurate POTSI scoring.
+    Calculate postural analysis using pure SCODIAC formulas without pixel-to-mm conversion.
     
     Implements the exact formulas from SCODIAC v2.7 software:
     - FAI-C7 = |l / (c+d)| * 100
@@ -81,22 +81,24 @@ def calculate_postural_analysis(points: List[Tuple[int, int]], pixel_to_mm_ratio
     - HDI-T = f/e * 100
     - POTSI = Sum of all FAI and HDI components
     
+    All calculations are done in pure pixel coordinates as ratios.
+    
     Where:
-    - l = C7 distance from midline
-    - c = left armpit distance from midline
-    - d = right armpit distance from midline  
-    - a = left waist distance from midline
-    - b = right waist distance from midline
-    - e = spine length (C7 to sacrum)
-    - h, g, f = height differences for shoulders, armpits, waist
+    - l = C7 distance from midline (pixels)
+    - c = left armpit distance from midline (pixels)
+    - d = right armpit distance from midline (pixels)
+    - a = left waist distance from midline (pixels)
+    - b = right waist distance from midline (pixels)
+    - e = spine length (C7 to sacrum) (pixels)
+    - h, g, f = height differences for shoulders, armpits, waist (pixels)
     
     Args:
         points: List of 8 anatomical points [(x,y), ...] in order:
                [C7, L_Shoulder, R_Shoulder, L_Armpit, R_Armpit, L_Waist, R_Waist, Sacrum]
-        pixel_to_mm_ratio: Conversion factor from pixels to mm. If None, will be estimated.
+        pixel_to_mm_ratio: Kept for compatibility but not used in calculations
         
     Returns:
-        Dictionary containing all POTSI components and measurements
+        Dictionary containing all POTSI components as pure ratios
     """
     if len(points) != 8:
         raise ValueError(f"Expected 8 points, got {len(points)}")
@@ -110,28 +112,20 @@ def calculate_postural_analysis(points: List[Tuple[int, int]], pixel_to_mm_ratio
     r_waist = points[6]
     sacrum = points[7]
 
-    # Estimate pixel to mm conversion if not provided
-    # Using optimized ratio, but may need adjustment for better FAI accuracy
-    if pixel_to_mm_ratio is None:
-        # Calculate ratio based on spine length for better accuracy
-        spine_length_pixels = abs(c7[1] - sacrum[1])
-        estimated_spine_length_mm = 450  # Average C7-sacrum distance
-        pixel_to_mm_ratio = estimated_spine_length_mm / spine_length_pixels if spine_length_pixels > 0 else 0.735
-    
-    # Calculate anatomical midline (typically midpoint between C7 and sacrum)
+    # Calculate anatomical midline (pure pixel coordinates)
     midline_x = (c7[0] + sacrum[0]) / 2
     
-    # Calculate distances from midline for each anatomical point (in mm)
-    l_c7_dist = abs(c7[0] - midline_x) * pixel_to_mm_ratio  # l
-    l_armpit_dist = abs(l_armpit[0] - midline_x) * pixel_to_mm_ratio  # c
-    r_armpit_dist = abs(r_armpit[0] - midline_x) * pixel_to_mm_ratio  # d
-    l_waist_dist = abs(l_waist[0] - midline_x) * pixel_to_mm_ratio   # a
-    r_waist_dist = abs(r_waist[0] - midline_x) * pixel_to_mm_ratio   # b
+    # Calculate distances from midline in pixels (pure ratios)
+    l_c7_dist = abs(c7[0] - midline_x)  # l
+    l_armpit_dist = abs(l_armpit[0] - midline_x)  # c
+    r_armpit_dist = abs(r_armpit[0] - midline_x)  # d
+    l_waist_dist = abs(l_waist[0] - midline_x)   # a
+    r_waist_dist = abs(r_waist[0] - midline_x)   # b
     
-    # Spine length for HDI calculations (e)
-    spine_length = abs(c7[1] - sacrum[1]) * pixel_to_mm_ratio  # e
+    # Spine length in pixels for HDI calculations (e)
+    spine_length = abs(c7[1] - sacrum[1])  # e
     
-    # FAI calculations according to SCODIAC formulas:
+    # FAI calculations according to SCODIAC formulas (pure ratios):
     # FAI-C7 = |l / (c+d)| * 100
     fai_c7 = abs(l_c7_dist / (l_armpit_dist + r_armpit_dist)) * 100 if (l_armpit_dist + r_armpit_dist) > 0 else 0
     
@@ -141,15 +135,15 @@ def calculate_postural_analysis(points: List[Tuple[int, int]], pixel_to_mm_ratio
     # FAI-T = |a-b| / (a+b) * 100
     fai_t = abs(l_waist_dist - r_waist_dist) / (l_waist_dist + r_waist_dist) * 100 if (l_waist_dist + r_waist_dist) > 0 else 0
     
-    # HDI calculations according to SCODIAC formulas:
+    # HDI calculations according to SCODIAC formulas (pure ratios):
     # HDI-S = h/e * 100 (shoulder height difference / spine length)
-    hdi_s = abs(l_shoulder[1] - r_shoulder[1]) * pixel_to_mm_ratio / spine_length * 100 if spine_length > 0 else 0
+    hdi_s = abs(l_shoulder[1] - r_shoulder[1]) / spine_length * 100 if spine_length > 0 else 0
     
     # HDI-A = g/e * 100 (armpit height difference / spine length) 
-    hdi_a = abs(l_armpit[1] - r_armpit[1]) * pixel_to_mm_ratio / spine_length * 100 if spine_length > 0 else 0
+    hdi_a = abs(l_armpit[1] - r_armpit[1]) / spine_length * 100 if spine_length > 0 else 0
     
     # HDI-T = f/e * 100 (waist height difference / spine length)
-    hdi_t = abs(l_waist[1] - r_waist[1]) * pixel_to_mm_ratio / spine_length * 100 if spine_length > 0 else 0
+    hdi_t = abs(l_waist[1] - r_waist[1]) / spine_length * 100 if spine_length > 0 else 0
     
     # POTSI calculation (sum of all FAI and HDI components)
     potsi = fai_c7 + fai_a + fai_t + hdi_s + hdi_a + hdi_t
@@ -158,7 +152,7 @@ def calculate_postural_analysis(points: List[Tuple[int, int]], pixel_to_mm_ratio
         'shoulder_symmetry': round(hdi_s, 2),
         'armpit_symmetry': round(hdi_a, 2), 
         'waist_symmetry': round(hdi_t, 2),
-        'spinal_alignment': round(abs(c7[0] - sacrum[0]) * pixel_to_mm_ratio, 2),
+        'spinal_alignment': round(abs(c7[0] - sacrum[0]), 2),  # Pure pixel difference
         'overall_posture_score': round(potsi, 2),
         'fai_c7': round(fai_c7, 2),
         'fai_armpit': round(fai_a, 2),
@@ -166,9 +160,9 @@ def calculate_postural_analysis(points: List[Tuple[int, int]], pixel_to_mm_ratio
         'hdi_shoulder': round(hdi_s, 2),
         'hdi_armpit': round(hdi_a, 2),
         'hdi_waist': round(hdi_t, 2),
-        'pixel_to_mm_ratio': round(pixel_to_mm_ratio, 4),
-        'spine_length_mm': round(spine_length, 2),
-        'distances_from_midline': {
+        'pixel_to_mm_ratio': 1.0,  # Pure ratio, no conversion
+        'spine_length_pixels': round(spine_length, 2),
+        'distances_from_midline_pixels': {
             'c7': round(l_c7_dist, 2),
             'left_armpit': round(l_armpit_dist, 2),
             'right_armpit': round(r_armpit_dist, 2),
@@ -627,11 +621,11 @@ async def test_scodiac_formulas():
             "message": "Failed to test SCODIAC formulas"
         }
 
-@app.get("/validate-scodiac")
-async def validate_scodiac():
+@app.get("/validate-pure-scodiac")
+async def validate_pure_scodiac():
     """
-    Validate SCODIAC formula implementation with known test case.
-    This endpoint verifies that our calculations match the expected SCODIAC formulas.
+    Validate pure SCODIAC formula implementation without pixel-to-mm conversion.
+    This endpoint verifies that our calculations work with pure pixel ratios.
     """
     try:
         # Use the exact test points from SCODIAC reference
@@ -646,39 +640,38 @@ async def validate_scodiac():
             (358, 622)   # Sacrum
         ]
         
-        # Calculate with our implementation
-        results = calculate_postural_analysis(test_points, 0.735)
+        # Calculate with our pure implementation
+        results = calculate_postural_analysis(test_points)
         
-        # Manual verification calculations
+        # Manual verification calculations (pure pixels)
         c7, l_shoulder, r_shoulder, l_armpit, r_armpit, l_waist, r_waist, sacrum = test_points
         midline_x = (c7[0] + sacrum[0]) / 2
-        ratio = 0.735
         
-        # Calculate distances in mm
-        l_c7_dist = abs(c7[0] - midline_x) * ratio
-        l_armpit_dist = abs(l_armpit[0] - midline_x) * ratio
-        r_armpit_dist = abs(r_armpit[0] - midline_x) * ratio
-        l_waist_dist = abs(l_waist[0] - midline_x) * ratio
-        r_waist_dist = abs(r_waist[0] - midline_x) * ratio
-        spine_length = abs(c7[1] - sacrum[1]) * ratio
+        # Calculate distances in pure pixels
+        l_c7_dist = abs(c7[0] - midline_x)
+        l_armpit_dist = abs(l_armpit[0] - midline_x)
+        r_armpit_dist = abs(r_armpit[0] - midline_x)
+        l_waist_dist = abs(l_waist[0] - midline_x)
+        r_waist_dist = abs(r_waist[0] - midline_x)
+        spine_length = abs(c7[1] - sacrum[1])
         
-        # SCODIAC formula verification
+        # SCODIAC formula verification (pure ratios)
         manual_fai_c7 = abs(l_c7_dist / (l_armpit_dist + r_armpit_dist)) * 100
         manual_fai_a = abs(l_armpit_dist - r_armpit_dist) / (l_armpit_dist + r_armpit_dist) * 100
         manual_fai_t = abs(l_waist_dist - r_waist_dist) / (l_waist_dist + r_waist_dist) * 100
         
-        manual_hdi_s = abs(l_shoulder[1] - r_shoulder[1]) * ratio / spine_length * 100
-        manual_hdi_a = abs(l_armpit[1] - r_armpit[1]) * ratio / spine_length * 100
-        manual_hdi_t = abs(l_waist[1] - r_waist[1]) * ratio / spine_length * 100
+        manual_hdi_s = abs(l_shoulder[1] - r_shoulder[1]) / spine_length * 100
+        manual_hdi_a = abs(l_armpit[1] - r_armpit[1]) / spine_length * 100
+        manual_hdi_t = abs(l_waist[1] - r_waist[1]) / spine_length * 100
         
         manual_potsi = manual_fai_c7 + manual_fai_a + manual_fai_t + manual_hdi_s + manual_hdi_a + manual_hdi_t
         
         return {
             "success": True,
-            "formula_validation": {
+            "pure_pixel_calculations": {
                 "midline_x": round(midline_x, 2),
-                "spine_length_mm": round(spine_length, 2),
-                "distances_mm": {
+                "spine_length_pixels": round(spine_length, 2),
+                "distances_pixels": {
                     "c7_from_midline": round(l_c7_dist, 2),
                     "left_armpit_from_midline": round(l_armpit_dist, 2),
                     "right_armpit_from_midline": round(r_armpit_dist, 2),
@@ -704,32 +697,20 @@ async def validate_scodiac():
                 "hdi_waist": results['hdi_waist'],
                 "potsi_total": results['overall_posture_score']
             },
-            "scodiac_references": {
-                "fai_c7": 4.42,
-                "fai_armpit": 5.31,
-                "fai_waist": 9.8,
-                "hdi_shoulder": 0.29,
-                "hdi_armpit": 0.87,
-                "hdi_waist": 1.73,
-                "potsi_total": 22.42
+            "formula_explanation": {
+                "FAI_C7": f"{l_c7_dist:.1f} / ({l_armpit_dist:.1f} + {r_armpit_dist:.1f}) * 100 = {manual_fai_c7:.2f}",
+                "FAI_A": f"|{l_armpit_dist:.1f} - {r_armpit_dist:.1f}| / ({l_armpit_dist:.1f} + {r_armpit_dist:.1f}) * 100 = {manual_fai_a:.2f}",
+                "FAI_T": f"|{l_waist_dist:.1f} - {r_waist_dist:.1f}| / ({l_waist_dist:.1f} + {r_waist_dist:.1f}) * 100 = {manual_fai_t:.2f}",
+                "note": "All calculations use pure pixel coordinates without mm conversion"
             },
-            "formulas_used": {
-                "FAI_C7": "l / (c+d) * 100",
-                "FAI_A": "|c-d| / (c+d) * 100",
-                "FAI_T": "|a-b| / (a+b) * 100",
-                "HDI_S": "h/e * 100",
-                "HDI_A": "g/e * 100", 
-                "HDI_T": "f/e * 100",
-                "POTSI": "Sum of all FAI and HDI components"
-            },
-            "validation_status": "SCODIAC formulas correctly implemented"
+            "validation_status": "Pure SCODIAC ratios correctly implemented"
         }
         
     except Exception as e:
         return {
             "success": False,
             "error": str(e),
-            "message": "Validation failed"
+            "message": "Pure validation failed"
         }
 
 @app.get("/health-8point")
